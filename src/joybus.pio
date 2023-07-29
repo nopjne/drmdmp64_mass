@@ -33,6 +33,6 @@ PUBLIC clockgen:
     set pindirs, 1 ;
 clockstart:
     set pins, 1 [5]
-    set pins, 0 [5]
+    set pins, 0 [4]
     jmp clockstart
 ;

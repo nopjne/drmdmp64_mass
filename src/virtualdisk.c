@@ -4,7 +4,7 @@
  * 
  * Virtual FAT16 disk construction.
  * Exposes the EEPROM, FlashRam, SRAM and catridge ROM as a file on a mass storage device.
- * Z64 are the byeflipped equivalent of the same data as the N64.
+ * Z64 are the byteflipped equivalents of the same data as the N64.
  * Filenames are separate to allow direct interaction with emulators and the savegames based on byteflipping modes.
  * ex When loading ROM.N64 the ROM.EEP will have an incorrect format for the emulator to work. 
  *    However ROMF.Z64 (RomF stands for Rom Flipped) will also have ROMF.EEP and ROMF.FLA flipped the same way as the .Z64.
@@ -273,36 +273,13 @@ uint32_t msc_get_serial_number32() {
 static volatile uint32_t lock = 0;
 int32_t tud_msc_read10_cb(uint8_t lun, uint32_t lba, uint32_t offset, void* buf, uint32_t buf_size)
 {
-    while(lock != 0) {}
-    lock = 1;
     (void)lun;
     (void)offset;
-    volatile uint32_t offsettemp = offset; 
-    offsettemp = offsettemp;
     assert(offset == 0);
-    //assert(buf_size == SECTOR_SIZE);
-    volatile uint32_t spf = SECTORS_PER_FAT;
-    spf = spf;
-    //assert(lba == 0);
-    //memset(buf, 0, buf_size);
-    int32_t written = 512;
-#ifndef NO_PARTITION_TABLE
     
     if (!lba) {
         memset(buf, 0, buf_size);
         uint8_t *ptable = buf + SECTOR_SIZE - 2 - 64;
-
-#if 0
-        // simple LBA partition at sector 1
-        ptable[4] = PT_FAT16_LBA;
-        // 08 LSB start sector
-        ptable[8] = 1;
-        // 12 LSB sector count
-        ptable[12] = (SECTOR_COUNT-1) & 0xffu;
-        ptable[13] = ((SECTOR_COUNT-1)>>8u) & 0xffu;
-        ptable[14] = ((SECTOR_COUNT-1)>>16u) & 0xffu;
-        static_assert(!(SECTOR_COUNT>>24u), "");
-#else
         static_assert(!((SECTOR_COUNT - 1u) >> 24), "");
         static const uint8_t _ptable_data4[] = {
                 PT_FAT16_LBA, 0, 0, 0,
@@ -313,17 +290,16 @@ int32_t tud_msc_read10_cb(uint8_t lun, uint32_t lba, uint32_t offset, void* buf,
                 ((SECTOR_COUNT - 1u) >> 16u) & 0xffu,
         };
         memcpy(ptable + 4, _ptable_data4, sizeof(_ptable_data4));
-#endif
         ptable[64] = 0x55;
         ptable[65] = 0xaa;
 
         uint32_t sn = msc_get_serial_number32();
         memcpy(buf + MBR_OFFSET_SERIAL_NUMBER, &sn, 4);
         lock = 0;
-        return (int32_t)written;
+        return (int32_t)512;
     }
     lba--;
-#endif
+
     if (!lba) {
         memset(buf, 0, buf_size);
         uint32_t sn = msc_get_serial_number32();
@@ -346,7 +322,6 @@ int32_t tud_msc_read10_cb(uint8_t lun, uint32_t lba, uint32_t offset, void* buf,
         ptable[65] = 0xaa;
 
         memcpy(buf + MBR_OFFSET_SERIAL_NUMBER, &sn, 4);
-        written = 512;
     } else {
         lba--;
         if (lba < SECTORS_PER_FAT * FAT_COUNT) {
@@ -442,7 +417,6 @@ int32_t tud_msc_read10_cb(uint8_t lun, uint32_t lba, uint32_t offset, void* buf,
                     size = 2 * 1024;
                     assert(cluster_offset == (CARTTEST_CLUSTER_START + 2));
                     init_dir_entry(++entries, "CARTTESTTXT", cluster_offset, size);
-                    written = 512;
                 } else {
                   memset(buf, 0, buf_size);
                 }
@@ -451,7 +425,6 @@ int32_t tud_msc_read10_cb(uint8_t lun, uint32_t lba, uint32_t offset, void* buf,
                 uint cluster = lba >> CLUSTER_SHIFT;
                 uint cluster_offset = lba - (cluster << CLUSTER_SHIFT);
                 {
-                  written = 512;
                   // Lookup cluster by entry
                   if (cluster == CARTTEST_CLUSTER_START) {
                     memset(buf, 0, SECTOR_SIZE);
@@ -508,14 +481,10 @@ int32_t tud_msc_read10_cb(uint8_t lun, uint32_t lba, uint32_t offset, void* buf,
                   } else if (cluster == EEPROMFLIP_CLUSTER_START) {
                       uint32_t address = (((uint32_t)cluster - (EEPROMFLIP_CLUSTER_START)) * CLUSTER_SIZE) + (cluster_offset * SECTOR_SIZE);
                       ReadEepromData(address / 64, buf);
-                      for (uint32_t i = 0; i < 256; i += 1) {
-                          ((uint16_t*)buf)[i] = flip16(((uint16_t*)buf)[i]);
-                      }
                   } else if (cluster >= FLASHRAMFLIP_CLUSTER_START) {
                       // Read SRAM/FRAM -- check if the cart responds to Flashram info request first, if not treat as SRAM.
                       // Also support Dezaemon's banked SRAM.
                       uint32_t address = (((uint32_t)cluster - (FLASHRAMFLIP_CLUSTER_START)) * CLUSTER_SIZE) + (cluster_offset * SECTOR_SIZE);
-                      //memcpy(buf, ((uint8_t*)readarr) + address, buf_size);
                       address += 0x08000000;
 
                       if (gFramPresent != 0) {
@@ -541,7 +510,7 @@ int32_t tud_msc_read10_cb(uint8_t lun, uint32_t lba, uint32_t offset, void* buf,
                       n64romstart = n64romstart;
                       uint32_t address = (((uint32_t)cluster - (N64ROM_CLUSTER_START)) * CLUSTER_SIZE) + (cluster_offset * SECTOR_SIZE);
                       address += 0x10000000;
-                      written = 0;
+                      uint32_t written = 0;
                       while (buf_size) {
                         set_address(address);
                         for (uint32_t i = 0; i < 256; i += 1) {
@@ -555,7 +524,6 @@ int32_t tud_msc_read10_cb(uint8_t lun, uint32_t lba, uint32_t offset, void* buf,
                       // Read SRAM/FRAM -- check if the cart responds to Flashram info request first, if not treat as SRAM.
                       // Also support Dezaemon's banked SRAM.
                       uint32_t address = (((uint32_t)cluster - (FLASHRAM_CLUSTER_START)) * CLUSTER_SIZE) + (cluster_offset * SECTOR_SIZE);
-                      //memcpy(buf, ((uint8_t*)readarr) + address, buf_size);
                       address += 0x08000000;
 
                       if (gFramPresent != 0) {
@@ -577,8 +545,7 @@ int32_t tud_msc_read10_cb(uint8_t lun, uint32_t lba, uint32_t offset, void* buf,
         }
     }
 
-    lock = 0;
-    return (int32_t)written;
+    return (int32_t)512;
 }
 
 //#define CFG_EXAMPLE_MSC_READONLY
@@ -595,20 +562,87 @@ bool tud_msc_is_writable_cb (uint8_t lun)
 
 // Callback invoked when received WRITE10 command.
 // Process data in buffer to disk's storage and return number of written bytes
-int32_t tud_msc_write10_cb(uint8_t lun, uint32_t lba, uint32_t offset, uint8_t* buffer, uint32_t bufsize)
+int32_t tud_msc_write10_cb(uint8_t lun, uint32_t lba, uint32_t offset,  uint8_t* buffer, uint32_t bufsize)
 {
   (void) lun;
 
   // out of ramdisk
   if ( lba >= DISK_BLOCK_NUM ) return -1;
 
-#ifndef CFG_EXAMPLE_MSC_READONLY
-  //uint8_t* addr = msc_disk[lba] + offset;
-  //memcpy(addr, buffer, bufsize);
-  (void) lba; (void) offset; (void) buffer;
-#else
-  (void) lba; (void) offset; (void) buffer;
-#endif
+  (void)lun;
+    (void)offset;
+    assert(offset == 0);
+    if (!lba) {
+       return 512; // Not writable.
+    }
+    lba--;
+
+    if (!lba) {
+        return 512; // Not writable.
+    } else {
+        lba--;
+        if (lba < SECTORS_PER_FAT * FAT_COUNT) {
+            return 512; // Not writable.
+        } else {
+            lba -= SECTORS_PER_FAT * FAT_COUNT;
+            if (lba < ROOT_DIRECTORY_SECTORS) {
+                // we don't support that many directory entries actually
+                return 512; // Not writable.
+            } else {
+                lba -= ROOT_DIRECTORY_SECTORS;
+                uint cluster = lba >> CLUSTER_SHIFT;
+                uint cluster_offset = lba - (cluster << CLUSTER_SHIFT);
+                {
+                  // Lookup cluster by entry
+                  if (cluster == CARTTEST_CLUSTER_START) {
+                        return 512; // Not writable.
+                  } else if (cluster == EEPROMFLIP_CLUSTER_START) {
+                      uint32_t address = (((uint32_t)cluster - (EEPROMFLIP_CLUSTER_START)) * CLUSTER_SIZE) + (cluster_offset * SECTOR_SIZE);
+                      WriteEepromData(address / 64, buffer);
+                  } else if (cluster >= FLASHRAMFLIP_CLUSTER_START) {
+                      // Read SRAM/FRAM -- check if the cart responds to Flashram info request first, if not treat as SRAM.
+                      // Also support Dezaemon's banked SRAM.
+                      uint32_t address = (((uint32_t)cluster - (FLASHRAMFLIP_CLUSTER_START)) * CLUSTER_SIZE) + (cluster_offset * SECTOR_SIZE);
+
+                      if (gFramPresent != 0) {
+                        FlashRamWrite512B(address, buffer, true);
+                      } else {
+                        address += 0x08000000;
+                        set_address(address);
+                        for (uint32_t i = 0; i < 256; i += 1) {
+                          uint16_t temp;
+                          memcpy(&temp, buffer + (i * 2), sizeof(uint16_t));
+                          write16(flip16(temp));
+                        }
+                      }
+                  } else if (cluster >= Z64ROM_CLUSTER_START) {
+                      return 512; // Read only. 
+                  } else if (cluster >= N64ROM_CLUSTER_START) {
+                      return 512; // Read only.
+                  } else if (cluster >= FLASHRAM_CLUSTER_START) {
+                      // Read SRAM/FRAM -- check if the cart responds to Flashram info request first, if not treat as SRAM.
+                      // TODO: support Dezaemon's banked SRAM.
+                      uint32_t address = (((uint32_t)cluster - (FLASHRAM_CLUSTER_START)) * CLUSTER_SIZE) + (cluster_offset * SECTOR_SIZE);
+                      if (gFramPresent != 0) {
+                        FlashRamWrite512B(address, buffer, false);
+                      } else {
+                        address += 0x08000000;
+                        for (uint32_t i = 0; i < 512; i += 2) {
+                          set_address(address + i);
+                          uint16_t temp;
+                          memcpy(&temp, buffer + i, sizeof(uint16_t));
+                          write16(temp);
+                        }
+                      }
+
+                  } else if (cluster == EEPROM_CLUSTER_START) {
+                      uint32_t address = (((uint32_t)cluster - (FLASHRAM_CLUSTER_START)) * CLUSTER_SIZE) + (cluster_offset * SECTOR_SIZE);
+                      WriteEepromData(address / 64, buffer);
+                  }
+                }
+            }
+        }
+    }
 
   return (int32_t) bufsize;
 }

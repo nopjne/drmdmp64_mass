@@ -10,6 +10,7 @@
  */
 
 //Command Description   Console Devices  Tx Bytes Rx Bytes
+//0xFF    Reset & info  N64 Cartridge    1        3
 //0x04    Read EEPROM   N64 Cartridge    2	      8
 //0x05    Write EEPROM  N64 Cartridge    10	      1
 
@@ -76,7 +77,7 @@ uint32_t GetInputWithTimeout(void)
 
             // Send the eeprom data if it's been ?Seconds since the last eeprom write
             // Reset the lastWriteTime to 0 and don't sent the data unless we get another write
-            if (lastWriteTime != 0 && diff > 100000) {
+            if (lastWriteTime != 0 && diff > 1000) {
                 lastWriteTime = 0;
                 break;
             }
@@ -89,6 +90,7 @@ uint32_t GetInputWithTimeout(void)
 }
 
 pio_sm_config config;
+uint piooffset;
 void __time_critical_func(InitEeprom)(uint dataPin)
 {
     gpio_init(dataPin);
@@ -99,8 +101,8 @@ void __time_critical_func(InitEeprom)(uint dataPin)
 
     pio_gpio_init(pio, dataPin);
 
-    uint offset = pio_add_program(pio, &joybus_program);
-    config = joybus_program_get_default_config(offset);
+    piooffset = pio_add_program(pio, &joybus_program);
+    config = joybus_program_get_default_config(piooffset);
     sm_config_set_in_pins(&config, dataPin);
     sm_config_set_out_pins(&config, dataPin, 1);
     sm_config_set_set_pins(&config, dataPin, 1);
@@ -108,7 +110,7 @@ void __time_critical_func(InitEeprom)(uint dataPin)
     sm_config_set_out_shift(&config, true, false, 32);
     sm_config_set_in_shift(&config, false, true, 8);
 
-    pio_sm_init(pio, 0, offset, &config);
+    pio_sm_init(pio, 0, piooffset, &config);
     pio_sm_set_enabled(pio, 0, true);
 
     // Send the info command
@@ -117,10 +119,9 @@ void __time_critical_func(InitEeprom)(uint dataPin)
         uint32_t result[8];
         int resultLen;
         convertToPio(probeResponse, 1, result, &resultLen);
-        sleep_us(6); // 3.75us into the bit before end bit => 6.25 to wait if the end-bit is 5us long
 
         pio_sm_set_enabled(pio, 0, false);
-        pio_sm_init(pio, 0, offset + joybus_offset_outmode, &config);
+        pio_sm_init(pio, 0, piooffset + joybus_offset_outmode, &config);
         pio_sm_set_enabled(pio, 0, true);
 
         for (int i = 0; i < resultLen; i++) pio_sm_put_blocking(pio, 0, result[i]);
@@ -162,31 +163,43 @@ void __time_critical_func(ReadEepromData)(uint32_t offset, uint8_t *buffer)
         uint8_t probeResponse[] = {0x04, (uint8_t)(ReadIndex + offset)};
         uint32_t result[8];
         int resultLen;
-        convertToPio(probeResponse, 1, result, &resultLen);
-        sleep_us(6); // 3.75us into the bit before end bit => 6.25 to wait if the end-bit is 5us long
+        convertToPio(probeResponse, 2, result, &resultLen);
 
-        // Send the read command
-        pio_sm_set_enabled(pio, 0, false);
-        pio_sm_init(pio, 0, offset + joybus_offset_outmode, &config);
-        pio_sm_set_enabled(pio, 0, true);
+        uint32_t firstInput;
+        uint32_t retries = 0;
+        do {
+            // Send the read command
+            pio_sm_set_enabled(pio, 0, false);
+            pio_sm_init(pio, 0, piooffset + joybus_offset_outmode, &config);
+            pio_sm_set_enabled(pio, 0, true);
 
-        for (int i = 0; i < resultLen; i++) pio_sm_put_blocking(pio, 0, result[i]);
+            for (int i = 0; i < resultLen; i++) pio_sm_put_blocking(pio, 0, result[i]);
 
+            firstInput = GetInputWithTimeout();
+            if (retries > 10) {
+                gEepromSize = 0;
+                return;
+            }
+            retries += 1;
+
+        } while (firstInput == 0xFFFFFFFF);
         // Read the incoming data from the cart.
-        for (int i = 0; i < resultLen; i += 1) {
-            buffer[(uint)i + (uint)ReadIndex] = (uint8_t)pio_sm_get_blocking(pio, 0);
+        buffer[(uint)ReadIndex * 8] = (uint8_t)firstInput;
+        for (int i = 1; i < 8; i += 1) {
+            buffer[(uint)i + (uint)ReadIndex * 8] = (uint8_t)pio_sm_get_blocking(pio, 0);
         }
+        sleep_us(200);
     }
 }
 
 void __time_critical_func(WriteEepromData)(uint32_t offset, uint8_t *buffer)
 {
     // Write the eeprom.
-    for (uint32_t ReadIndex = 0; ReadIndex < 64; ReadIndex += 1) {
+    for (uint32_t WriteIndex = 0; WriteIndex < 64; WriteIndex += 1) {
         // Construct the write command.
-        uint8_t probeResponse[10] = {0x05, (uint8_t)(ReadIndex + offset)};
+        uint8_t probeResponse[10] = {0x05, (uint8_t)(WriteIndex + offset)};
         for (uint i = 0; i < 8; i += 1) {
-            probeResponse[i + 2] = buffer[i + ReadIndex];
+            probeResponse[i + 2] = buffer[i + WriteIndex];
         }
 
         uint32_t result[9];
@@ -194,21 +207,32 @@ void __time_critical_func(WriteEepromData)(uint32_t offset, uint8_t *buffer)
         convertToPio(probeResponse, 1, result, &resultLen);
         sleep_us(6); // 3.75us into the bit before end bit => 6.25 to wait if the end-bit is 5us long
 
-        // Send the read command
-        pio_sm_set_enabled(pio, 0, false);
-        pio_sm_init(pio, 0, offset + joybus_offset_outmode, &config);
-        pio_sm_set_enabled(pio, 0, true);
+        uint32_t firstInput;
+        uint32_t retries = 0;
+        do {
+            // Send the read command
+            pio_sm_set_enabled(pio, 0, false);
+            pio_sm_init(pio, 0, piooffset + joybus_offset_outmode, &config);
+            pio_sm_set_enabled(pio, 0, true);
 
-        for (int i = 0; i < resultLen; i++) pio_sm_put_blocking(pio, 0, result[i]);
+            for (int i = 0; i < resultLen; i++) pio_sm_put_blocking(pio, 0, result[i]);
 
+            firstInput = GetInputWithTimeout();
+            if (retries > 10) {
+                gEepromSize = 0;
+                return;
+            }
+            retries += 1;
+
+        } while (firstInput == 0xFFFFFFFF);
         // Read the incoming data from the cart.
         uint8_t response[2];
-        for (int i = 0; i < 2; i += 1) {
-            response[i] = (uint8_t)pio_sm_get_blocking(pio, 0);
-        }
+        response[0] = (uint8_t)firstInput;
+        response[1] = (uint8_t)pio_sm_get_blocking(pio, 0);
 
         if (response[1] != 0) {
-            sleep_ms(1);
+            sleep_ms(10);
         }
+        sleep_us(200);
     }
 }

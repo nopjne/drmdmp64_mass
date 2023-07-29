@@ -40,7 +40,7 @@ static const uint16_t joybus_program_instructions[] = {
     0x0008, // 16: jmp    8                          
     0xe081, // 17: set    pindirs, 1                 
     0xe501, // 18: set    pins, 1                [5] 
-    0xe500, // 19: set    pins, 0                [5] 
+    0xe400, // 19: set    pins, 0                [4] 
     0x0012, // 20: jmp    18                         
             //     .wrap
 };

@@ -33,6 +33,7 @@ void set_address(uint32_t address);
 uint16_t read16();
 void write32(uint32_t value);
 void write16(uint16_t value);
+void FlashRamWrite512B(uint32_t address, unsigned char *buffer, bool flip);
 
 extern uint32_t gRomSize;
 extern uint32_t readarr[32768];

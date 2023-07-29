@@ -404,3 +404,32 @@ void write16(uint16_t value)
     busy_wait_at_least_cycles(READ_LOW_DELAY_NS);
     gpio_put(N64_WRITE, true);
 }
+
+void FlashRamWrite512B(uint32_t address, unsigned char *buffer, bool flip)
+{
+    for (uint8_t x = 0; x < 4; x += 1) {
+        uint32_t offset = address + (x * 128);
+        set_address(0x08000000 + 0x10000);
+        write32(0x4B000000 | offset);
+        set_address(0x08000000 + 0x10000);
+        write32(0x78000000);
+        set_address(0x08000000 + 0x10000);
+        write32(0xB4000000);
+        set_address(0x08000000);
+        for (uint8_t i = 0; i < 128; i += 2) {
+            uint32_t temp[3];
+            temp[0] = buffer[i + (x * 128)];
+            temp[1] = buffer[i + (x * 128) + 1];
+            temp[2] = temp[0] | temp[1] << 8;
+            
+            if (flip != false) {
+                temp[3] = flip16((uint16_t)temp[3]);
+            }
+
+            write16((uint16_t)temp[3]);
+        }
+
+        set_address(0x08000000 + 0x10000);
+        write32(0xA5000000 | offset);
+    }
+}
