@@ -22,6 +22,8 @@
 #define N64_ALEL       (27)
 #define N64_ALEH       (28)
 
+#define READ_LOW_DELAY_NS (133 / 4) // 133 = 1us 1us / 5 = ~300ns
+
 enum CIC_TYPES {
     CIC_TYPE_PAL = 0,
     CIC_TYPE_NTSC = 1,
@@ -34,6 +36,7 @@ uint16_t read16();
 void write32(uint32_t value);
 void write16(uint16_t value);
 void FlashRamWrite512B(uint32_t address, unsigned char *buffer, bool flip);
+void SRAMWrite512B(uint32_t address, unsigned char *buffer, bool flip);
 
 extern uint32_t gRomSize;
 extern uint32_t readarr[32768];

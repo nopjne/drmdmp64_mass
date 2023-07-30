@@ -17,7 +17,6 @@
 
 #define LATCH_DELAY_US 1
 #define LATCH_DELAY_NS (110 / 14)
-#define READ_LOW_DELAY_NS (133 / 4) // 133 = 1us 1us / 5 = ~300ns
 
 #define CART_ADDRESS_START (0x10000000)
 #define SRAM_ADDRESS_START (0x08000000)
@@ -423,13 +422,46 @@ void FlashRamWrite512B(uint32_t address, unsigned char *buffer, bool flip)
             temp[2] = temp[0] | temp[1] << 8;
             
             if (flip != false) {
-                temp[3] = flip16((uint16_t)temp[3]);
+                temp[2] = flip16((uint16_t)temp[2]);
             }
 
-            write16((uint16_t)temp[3]);
+            write16((uint16_t)temp[2]);
+            busy_wait_at_least_cycles(READ_LOW_DELAY_NS);
         }
 
         set_address(0x08000000 + 0x10000);
         write32(0xA5000000 | offset);
+    }
+}
+
+void SRAMWrite512B(uint32_t address, unsigned char *buffer, bool flip)
+{
+    set_address(address);
+    busy_wait_at_least_cycles(READ_LOW_DELAY_NS * 2);
+    for (uint32_t i = 0; i < 256; i += 1) {
+        uint32_t temp[3];
+        temp[0] = buffer[i * 2];
+        temp[1] = buffer[i * 2 + 1];
+        temp[2] = temp[0] | temp[1] << 8;
+        if (flip != false) {
+            temp[2] = flip16((uint16_t)temp[2]);
+        }
+
+        write16((uint16_t)temp[2]);
+        busy_wait_at_least_cycles(READ_LOW_DELAY_NS);
+    }
+    set_address(address);
+    busy_wait_at_least_cycles(READ_LOW_DELAY_NS * 2);
+    for (uint32_t i = 0; i < 2; i += 1) {
+        uint32_t temp[3];
+        temp[0] = buffer[i * 2];
+        temp[1] = buffer[i * 2 + 1];
+        temp[2] = temp[0] | temp[1] << 8;
+        if (flip != false) {
+            temp[2] = flip16((uint16_t)temp[2]);
+        }
+
+        write16((uint16_t)temp[2]);
+        busy_wait_at_least_cycles(READ_LOW_DELAY_NS);
     }
 }
