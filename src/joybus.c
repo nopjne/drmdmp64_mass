@@ -199,13 +199,12 @@ void __time_critical_func(WriteEepromData)(uint32_t offset, uint8_t *buffer)
         // Construct the write command.
         uint8_t probeResponse[10] = {0x05, (uint8_t)(WriteIndex + offset)};
         for (uint i = 0; i < 8; i += 1) {
-            probeResponse[i + 2] = buffer[i + WriteIndex];
+            probeResponse[i + 2] = buffer[i + (WriteIndex * 8)];
         }
 
-        uint32_t result[9];
+        uint32_t result[10];
         int resultLen;
-        convertToPio(probeResponse, 1, result, &resultLen);
-        sleep_us(6); // 3.75us into the bit before end bit => 6.25 to wait if the end-bit is 5us long
+        convertToPio(probeResponse, 10, result, &resultLen);
 
         uint32_t firstInput;
         uint32_t retries = 0;
@@ -228,11 +227,10 @@ void __time_critical_func(WriteEepromData)(uint32_t offset, uint8_t *buffer)
         // Read the incoming data from the cart.
         uint8_t response[2];
         response[0] = (uint8_t)firstInput;
-        response[1] = (uint8_t)pio_sm_get_blocking(pio, 0);
-
-        if (response[1] != 0) {
+        if (response[0] != 0) {
             sleep_ms(10);
         }
+
         sleep_us(200);
     }
 }
