@@ -40,6 +40,7 @@ static char gpio_is_output = 0;
 uint32_t gRomSize = 64 * 1024 * 1024;
 uint32_t gFramPresent = 0;
 uint32_t gSRAMPresent = 1;
+uint8_t gFlashType = 0;
 uint32_t gCICType = 0xFF;
 uint16_t gGameTitle[0x16];
 uint16_t gGameCode[6];
@@ -219,13 +220,13 @@ void cartio_init()
     set_address(SRAM_ADDRESS_START);
     readarr[0] = (((uint32_t)read16()) << 16) | (read16());
     readarr[1] = (((uint32_t)read16()) << 16) | (read16());
-    uint8_t FlashType = (readarr[1] & 0xFF);
+    gFlashType = (readarr[1] & 0xFF);
     if ((readarr[0] == 0x11118001) && 
-        (    (FlashType == 0x1E)
-          || (FlashType == 0x1D)
-          || (FlashType == 0xF1)
-          || (FlashType == 0x8E)
-          || (FlashType == 0x84)
+        (    (gFlashType == 0x1E)
+          || (gFlashType == 0x1D)
+          || (gFlashType == 0xF1)
+          || (gFlashType == 0x8E)
+          || (gFlashType == 0x84)
         )
         ) {
 
@@ -391,6 +392,7 @@ void write32(uint32_t value)
     write16((uint16_t)(value >> 16));
     busy_wait_at_least_cycles(READ_LOW_DELAY_NS);
     write16((uint16_t)(value & 0xFFFF));
+    busy_wait_at_least_cycles(READ_LOW_DELAY_NS);
 }
 
 void write16(uint16_t value)
@@ -404,16 +406,81 @@ void write16(uint16_t value)
     gpio_put(N64_WRITE, true);
 }
 
+void FlashRamEraseBlock128B(uint32_t offset)
+{
+    // Set erase address.
+    set_address(0x08000000 + 0x10000);
+    write32(0x4B000000 | offset);
+
+    // Execute the erase
+    set_address(0x08000000 + 0x10000);
+    write32(0x78000000);
+
+    // Wait for the erase to complete
+    set_address(0x08000000 + 0x10000);
+    write32(0xD2000000);
+
+    do {
+        set_address(SRAM_ADDRESS_START + 0x10000);
+        write32(0xE1000000);
+
+        set_address(SRAM_ADDRESS_START);
+        readarr[0] = (((uint32_t)read16()) << 16) | (read16());
+        readarr[1] = (((uint32_t)read16()) << 16) | (read16());
+    } while (readarr[0] != 0x11118001);
+}
+
 void FlashRamWrite512B(uint32_t address, unsigned char *buffer, bool flip)
 {
+    // FLashtype 0x1E devides the set read address by 2x.
     for (uint8_t x = 0; x < 4; x += 1) {
         uint32_t offset = address + (x * 128);
+
+        // Check if an erase needs to happen, erase is slow so skipping it is better.
+        bool EraseNeeded = false;
+        bool WriteNeeded = false;
         set_address(0x08000000 + 0x10000);
-        write32(0x4B000000 | offset);
-        set_address(0x08000000 + 0x10000);
-        write32(0x78000000);
+        write32(0xF0000000);
+        if (gFlashType == 0x1E) {
+            set_address(0x08000000 + (offset / 2));
+        } else {
+            set_address(0x08000000 + offset);
+        }
+
+        for (uint i = 0; i < 128; i += 2) {
+            readarr[0] = ((uint32_t)read16()) & 0xFFFF;
+            uint32_t temp[3];
+            temp[0] = buffer[i + (x * 128)];
+            temp[1] = buffer[i + (x * 128) + 1];
+            temp[2] = temp[0] | temp[1] << 8;
+
+            if (flip != false) {
+                temp[2] = flip16((uint16_t)temp[2]);
+            }
+
+            temp[2] &= 0xFFFF;
+            if ((temp[2] & readarr[0]) != temp[2]) {
+                EraseNeeded = true;
+                WriteNeeded = true;
+                break;
+            }
+
+            if (temp[2] != readarr[0]) {
+                WriteNeeded = true;
+            }
+        }
+
+        if (EraseNeeded != false) {
+            FlashRamEraseBlock128B(offset / 128);
+        } else if (WriteNeeded == false) {
+            continue;
+        }
+
+        // Set write mode
         set_address(0x08000000 + 0x10000);
         write32(0xB4000000);
+
+        // Fill write buffer
         set_address(0x08000000);
         for (uint8_t i = 0; i < 128; i += 2) {
             uint32_t temp[3];
@@ -429,8 +496,23 @@ void FlashRamWrite512B(uint32_t address, unsigned char *buffer, bool flip)
             busy_wait_at_least_cycles(READ_LOW_DELAY_NS);
         }
 
+        // Set write address
         set_address(0x08000000 + 0x10000);
-        write32(0xA5000000 | offset);
+        write32(0xA5000000 | (offset / 128));
+
+        // Execute write.
+        set_address(0x08000000 + 0x10000);
+        write32(0xD2000000);
+
+        do {
+            busy_wait_at_least_cycles(READ_LOW_DELAY_NS);
+            set_address(SRAM_ADDRESS_START + 0x10000);
+            write32(0xE1000000);
+
+            set_address(SRAM_ADDRESS_START);
+            readarr[0] = (((uint32_t)read16()) << 16) | (read16());
+            readarr[1] = (((uint32_t)read16()) << 16) | (read16());
+        } while (readarr[0] != 0x11118001);
     }
 }
 
@@ -450,6 +532,8 @@ void SRAMWrite512B(uint32_t address, unsigned char *buffer, bool flip)
         write16((uint16_t)temp[2]);
         busy_wait_at_least_cycles(READ_LOW_DELAY_NS);
     }
+
+    // No idea why this is needed but without this the first 16b does not get the correct value.
     set_address(address);
     busy_wait_at_least_cycles(READ_LOW_DELAY_NS * 2);
     for (uint32_t i = 0; i < 2; i += 1) {
@@ -463,5 +547,39 @@ void SRAMWrite512B(uint32_t address, unsigned char *buffer, bool flip)
 
         write16((uint16_t)temp[2]);
         busy_wait_at_least_cycles(READ_LOW_DELAY_NS);
+    }
+}
+
+void FlashRamRead512B(uint32_t address, uint16_t *buffer, bool flip)
+{
+    set_address(0x08000000 + 0x10000);
+    write32(0xF0000000);
+    for (uint32_t x = 0; x < 4; x += 1) {
+        if (gFlashType == 0x1E) {
+            set_address(0x08000000 + ((address + x * 128) >> 1));
+        } else {
+            set_address(0x08000000 + (address + x * 128));
+        }
+
+        for (uint32_t i = 0; i < 128; i += 2) {
+            if (flip == false) {
+                buffer[(i / 2) + (x * 64)] = read16();
+            } else {
+                buffer[(i / 2) + (x * 64)] = flip16(read16());
+            }
+        }
+    }
+}
+
+void SRAMRead512B(uint32_t address, uint16_t *buffer, bool flip)
+{
+    address += 0x08000000;
+    set_address(address);
+    for (uint32_t i = 0; i < 256; i += 1) {
+        if (flip != false) {
+            buffer[i] = flip16(read16());
+        } else {
+            buffer[i] = read16();
+        }
     }
 }

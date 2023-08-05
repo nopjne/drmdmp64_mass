@@ -177,6 +177,19 @@ struct dir_entry {
     uint32_t size;
 };
 
+typedef struct _LongFileName
+{
+   uint8_t sequenceNo;            // Sequence number, 0xe5 for
+                                  // deleted entry
+   uint8_t fileName_Part1[10];    // file name part
+   uint8_t fileattribute;         // File attibute
+   uint8_t reserved_1;
+   uint8_t checksum;              // Checksum
+   uint8_t fileName_Part2[12];    // WORD reserved_2;
+   uint8_t fileName_Part3[4];
+   uint8_t fileName_Part4[2];
+} LFN;
+
 static_assert(sizeof(struct dir_entry) == 32, "");
 
 // Invoked when received SCSI_CMD_INQUIRY
@@ -243,7 +256,20 @@ bool tud_msc_start_stop_cb(uint8_t lun, uint8_t power_condition, bool start, boo
   return true;
 }
 
-void init_dir_entry(struct dir_entry *entry, const char *fn, uint32_t cluster, uint len, uint8_t attribute) {
+void init_dir_entry(struct dir_entry *entry, const char *fn, const char *uniname, uint32_t cluster, uint len, uint8_t attribute) {
+    LFN *lfnentry = (LFN*)entry;
+    memset(lfnentry, 0, sizeof(LFN));
+    lfnentry->sequenceNo = 0x41;
+    lfnentry->fileattribute = 0x0f;
+    lfnentry->checksum = 0x0f;
+    memcpy(lfnentry->fileName_Part1, uniname, sizeof(lfnentry->fileName_Part1));
+    memcpy(lfnentry->fileName_Part2, uniname + sizeof(lfnentry->fileName_Part1), sizeof(lfnentry->fileName_Part2));
+    memcpy(lfnentry->fileName_Part3, uniname + sizeof(lfnentry->fileName_Part1) + sizeof(lfnentry->fileName_Part2), sizeof(lfnentry->fileName_Part3));
+    lfnentry->fileName_Part3[3] = 0xFF;
+    lfnentry->fileName_Part3[2] = 0xFF;
+    lfnentry->fileName_Part4[0] = 0xFF;
+    lfnentry->fileName_Part4[1] = 0xFF;
+    entry++;
     entry->creation_time_frac = RASPBERRY_PI_TIME_FRAC;
     entry->creation_time = RASPBERRY_PI_TIME;
     entry->creation_date = RASPBERRY_PI_DATE;
@@ -386,51 +412,58 @@ int32_t tud_msc_read10_cb(uint8_t lun, uint32_t lba, uint32_t offset, void* buf,
                     uint32_t cluster_offset = 2;
                     uint32_t size = 2 * 1024;
                     assert(cluster_offset == (EEPROM_CLUSTER_START + 2));
-                    init_dir_entry(++entries, "ROM     EEP", cluster_offset, gEepromSize, 0);
+                    init_dir_entry(++entries, "ROM     EEP", "r\0o\0m\0.\0e\0e\0p\0\0\0\0\0\0\0\0\0\0", cluster_offset, gEepromSize, 0);
+                    entries++;
 
                     cluster_offset += (size / CLUSTER_SIZE) + 1;
                     assert(cluster_offset == (FLASHRAM_CLUSTER_START + 2));
                     size = 128 * 1024;
                     if ((gSRAMPresent != false) || (gFramPresent != false)) {
-                      init_dir_entry(++entries, "ROM     FLA", cluster_offset, size, 0); // DaisyDrive64 doesn't differentiate between SRAM and FRAM for filenames.
+                      init_dir_entry(++entries, "ROM     FLA", "r\0o\0m\0.\0f\0l\0a\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0", cluster_offset, size, 0); // DaisyDrive64 doesn't differentiate between SRAM and FRAM for filenames.
                     } else {
-                      init_dir_entry(++entries, "ROM     FLA", cluster_offset, 0, 0); // DaisyDrive64 doesn't differentiate between SRAM and FRAM for filenames.
+                      init_dir_entry(++entries, "ROM     FLA", "r\0o\0m\0.\0f\0l\0a\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0", cluster_offset, 0, 0); // DaisyDrive64 doesn't differentiate between SRAM and FRAM for filenames.
                     }
+                    entries++;
 
                     cluster_offset += size / CLUSTER_SIZE;
                     size = (64 * 1024 * 1024);
                     assert(cluster_offset == (N64ROM_CLUSTER_START + 2));
-                    init_dir_entry(++entries, "ROM     N64", cluster_offset, gRomSize, ATTR_READONLY);
+                    init_dir_entry(++entries, "ROM     N64", "r\0o\0m\0.\0n\0\\6\0\\4\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0", cluster_offset, gRomSize, ATTR_READONLY);
+                    entries++;
 
                     cluster_offset += size / CLUSTER_SIZE;
                     size = (64 * 1024 * 1024);
                     assert(cluster_offset == (Z64ROM_CLUSTER_START + 2));
-                    init_dir_entry(++entries, "ROMF    Z64", cluster_offset, gRomSize, ATTR_READONLY); // Same as N64 just byteflipped.
+                    init_dir_entry(++entries, "ROMF    Z64", "r\0o\0m\0.\0z\0\\6\0\\4\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0", cluster_offset, gRomSize, ATTR_READONLY); // Same as N64 just byteflipped.
+                    entries++;
 
                     cluster_offset += size / CLUSTER_SIZE;
                     size = 128 * 1024;
                     assert(cluster_offset == (FLASHRAMFLIP_CLUSTER_START + 2));
                     if ((gSRAMPresent != false) || (gFramPresent != false)) {
                       if (gFramPresent != false) {
-                        init_dir_entry(++entries, "ROMF    FLA", cluster_offset, size, 0); // Same as N64 just byteflipped, fla for Ares emulator support.
+                        init_dir_entry(++entries, "ROMF    FLA", "R\0O\0M\0F\0.\0f\0l\0a\0s\0h\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0" , cluster_offset, size, 0); // Same as N64 just byteflipped, fla for Ares emulator support.
                       } else {
-                        init_dir_entry(++entries, "ROMF    RAM", cluster_offset, size, 0); // Same as N64 just byteflipped, ram for Ares emulator support.
+                        init_dir_entry(++entries, "ROMF    RAM", "R\0O\0M\0F\0.\0r\0a\0m\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0", cluster_offset, size, 0); // Same as N64 just byteflipped, ram for Ares emulator support.
                       }
                     } else {
-                      init_dir_entry(++entries, "ROMF    FLA", cluster_offset, 0, 0); // Same as N64 just byteflipped, ram for Ares emulator support.
+                      init_dir_entry(++entries, "ROMF    FLA", "R\0O\0M\0F\0.\0f\0l\0a\0s\0h\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0", cluster_offset, 0, 0); // Same as N64 just byteflipped, ram for Ares emulator support.
                     }
+                    entries++;
 
                     cluster_offset += size / CLUSTER_SIZE;
                     size = 2 * 1024;
                     assert(cluster_offset == (EEPROMFLIP_CLUSTER_START + 2));
                     if (gEepromSize != 0) {
-                      init_dir_entry(++entries, "ROMF    EEP", cluster_offset, gEepromSize, 0);
+                      init_dir_entry(++entries, "ROMF    EEP", "R\0O\0M\0F\0.\0e\0e\0p\0r\0o\0m\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0", cluster_offset, gEepromSize, 0);
+                      entries++;
                     }
 
                     cluster_offset += (size / CLUSTER_SIZE) + 1;
                     size = 2 * 1024;
                     assert(cluster_offset == (CARTTEST_CLUSTER_START + 2));
-                    init_dir_entry(++entries, "CARTTESTTXT", cluster_offset, size, ATTR_READONLY);
+                    init_dir_entry(++entries, "CARTTESTTXT", "c\0a\0r\0t\0t\0e\0s\0t\0.\0t\0x\0t\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0", cluster_offset, size, ATTR_READONLY);
+                    entries++;
                 } else {
                   memset(buf, 0, buf_size);
                 }
@@ -469,7 +502,7 @@ int32_t tud_msc_read10_cb(uint8_t lun, uint32_t lba, uint32_t offset, void* buf,
                         "\nCart tester report:\n\n"
                         "    EEPROM     - %s\n"
                         "    SRAM       - %s\n"
-                        "    FlashRam   - %s\n"
+                        "    FlashRam   - %s (%02X)\n"
                         "    CIC        - %s %s\n"
                         "    Romsize    - %luMB\n"
                         "    RomName    - %s\n"
@@ -479,7 +512,7 @@ int32_t tud_msc_read10_cb(uint8_t lun, uint32_t lba, uint32_t offset, void* buf,
                         "    RomVersion - %02X\n",
                         EepString,
                         (gSRAMPresent != 0) ? OK : NotPresent,
-                        (gFramPresent != 0) ? OK : NotPresent,
+                        (gFramPresent != 0) ? OK : NotPresent, gFlashType,
                         CICString,
                         gCICName,
                         (gRomSize / (1024 * 1024)),
@@ -499,16 +532,10 @@ int32_t tud_msc_read10_cb(uint8_t lun, uint32_t lba, uint32_t offset, void* buf,
                       // Read SRAM/FRAM -- check if the cart responds to Flashram info request first, if not treat as SRAM.
                       // Also support Dezaemon's banked SRAM.
                       uint32_t address = (((uint32_t)cluster - (FLASHRAMFLIP_CLUSTER_START)) * CLUSTER_SIZE) + (cluster_offset * SECTOR_SIZE);
-                      address += 0x08000000;
-
                       if (gFramPresent != 0) {
-                        set_address(0x08000000 + 0x10000);
-                        write32(0xF0000000);
-                      }
-
-                      set_address(address);
-                      for (uint32_t i = 0; i < 256; i += 1) {
-                          ((uint16_t*)buf)[i] = flip16(read16());
+                        FlashRamRead512B(address, (uint16_t*)buf, true);
+                      } else {
+                        SRAMRead512B(address, (uint16_t*)buf, true);
                       }
                   } else if (cluster >= Z64ROM_CLUSTER_START) {
                       // Read Z64 rom
@@ -538,16 +565,10 @@ int32_t tud_msc_read10_cb(uint8_t lun, uint32_t lba, uint32_t offset, void* buf,
                       // Read SRAM/FRAM -- check if the cart responds to Flashram info request first, if not treat as SRAM.
                       // Also support Dezaemon's banked SRAM.
                       uint32_t address = (((uint32_t)cluster - (FLASHRAM_CLUSTER_START)) * CLUSTER_SIZE) + (cluster_offset * SECTOR_SIZE);
-                      address += 0x08000000;
-
                       if (gFramPresent != 0) {
-                        set_address(0x08000000 + 0x10000);
-                        write32(0xF0000000);
-                      }
-
-                      set_address(address);
-                      for (uint32_t i = 0; i < 256; i += 1) {
-                          ((uint16_t*)buf)[i] = read16();
+                        FlashRamRead512B(address, (uint16_t*)buf, false);
+                      } else {
+                        SRAMRead512B(address, (uint16_t*)buf, true);
                       }
 
                   } else if (cluster == EEPROM_CLUSTER_START) {
