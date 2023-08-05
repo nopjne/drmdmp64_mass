@@ -543,7 +543,7 @@ int32_t tud_msc_read10_cb(uint8_t lun, uint32_t lba, uint32_t offset, void* buf,
                       }
                   } else if (cluster == EEPROMFLIP_CLUSTER_START) {
                       uint32_t address = (((uint32_t)cluster - (EEPROMFLIP_CLUSTER_START)) * CLUSTER_SIZE) + (cluster_offset * SECTOR_SIZE);
-                      ReadEepromData(address / 64, buf);
+                      ReadEepromData(address / 8, buf);
                   } else if (cluster >= FLASHRAMFLIP_CLUSTER_START) {
                       // Read SRAM/FRAM -- check if the cart responds to Flashram info request first, if not treat as SRAM.
                       // Also support Dezaemon's banked SRAM.
@@ -589,7 +589,7 @@ int32_t tud_msc_read10_cb(uint8_t lun, uint32_t lba, uint32_t offset, void* buf,
 
                   } else if (cluster == EEPROM_CLUSTER_START) {
                       uint32_t address = (((uint32_t)cluster - (FLASHRAM_CLUSTER_START)) * CLUSTER_SIZE) + (cluster_offset * SECTOR_SIZE);
-                      ReadEepromData(address / 64, buf);
+                      ReadEepromData(address / 8, buf);
                   }
                 }
             }
@@ -649,7 +649,7 @@ int32_t tud_msc_write10_cb(uint8_t lun, uint32_t lba, uint32_t offset,  uint8_t*
                         return 512; // Not writable.
                   } else if (cluster == EEPROMFLIP_CLUSTER_START) {
                       uint32_t address = (((uint32_t)cluster - (EEPROMFLIP_CLUSTER_START)) * CLUSTER_SIZE) + (cluster_offset * SECTOR_SIZE);
-                      WriteEepromData(address / 64, buffer);
+                      WriteEepromData(address / 8, buffer);
                   } else if ((cluster >= FLASHRAMFLIP_CLUSTER_START) && (cluster < FLASHRAMFLIP_CLUSTER_START + 4)) {
                       // Read SRAM/FRAM -- check if the cart responds to Flashram info request first, if not treat as SRAM.
                       // Also support Dezaemon's banked SRAM.
@@ -679,7 +679,7 @@ int32_t tud_msc_write10_cb(uint8_t lun, uint32_t lba, uint32_t offset,  uint8_t*
 
                   } else if (cluster == EEPROM_CLUSTER_START) {
                       uint32_t address = (((uint32_t)cluster - (FLASHRAM_CLUSTER_START)) * CLUSTER_SIZE) + (cluster_offset * SECTOR_SIZE);
-                      WriteEepromData(address / 64, buffer);
+                      WriteEepromData(address / 8, buffer);
                   }
                 }
             }
