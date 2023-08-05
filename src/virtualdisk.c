@@ -186,8 +186,8 @@ typedef struct _LongFileName
    uint8_t reserved_1;
    uint8_t checksum;              // Checksum
    uint8_t fileName_Part2[12];    // WORD reserved_2;
+   uint8_t reserved_2[2];
    uint8_t fileName_Part3[4];
-   uint8_t fileName_Part4[2];
 } LFN;
 
 static_assert(sizeof(struct dir_entry) == 32, "");
@@ -256,19 +256,37 @@ bool tud_msc_start_stop_cb(uint8_t lun, uint8_t power_condition, bool start, boo
   return true;
 }
 
+unsigned char ChkSum (const unsigned char *pFcbName)
+{
+  short FcbNameLen;
+  unsigned char Sum;
+
+  Sum = 0;//*pFcbName;
+  for (FcbNameLen = 11; FcbNameLen != 0; FcbNameLen--)
+    {   
+      // NOTE: The operation is an unsigned char rotate right
+      unsigned char sign = (unsigned char)((Sum & 0x01) ? 0x80 : 0x00);
+      unsigned char value = *pFcbName;
+      Sum = (sign) | (Sum >> 0x01);
+      Sum += value;
+      pFcbName += 1;
+    }   
+  return (Sum);
+}
+
 void init_dir_entry(struct dir_entry *entry, const char *fn, const char *uniname, uint32_t cluster, uint len, uint8_t attribute) {
     LFN *lfnentry = (LFN*)entry;
     memset(lfnentry, 0, sizeof(LFN));
     lfnentry->sequenceNo = 0x41;
     lfnentry->fileattribute = 0x0f;
-    lfnentry->checksum = 0x0f;
+    lfnentry->checksum = ChkSum((const unsigned char*)fn);
     memcpy(lfnentry->fileName_Part1, uniname, sizeof(lfnentry->fileName_Part1));
     memcpy(lfnentry->fileName_Part2, uniname + sizeof(lfnentry->fileName_Part1), sizeof(lfnentry->fileName_Part2));
     memcpy(lfnentry->fileName_Part3, uniname + sizeof(lfnentry->fileName_Part1) + sizeof(lfnentry->fileName_Part2), sizeof(lfnentry->fileName_Part3));
-    lfnentry->fileName_Part3[3] = 0xFF;
-    lfnentry->fileName_Part3[2] = 0xFF;
-    lfnentry->fileName_Part4[0] = 0xFF;
-    lfnentry->fileName_Part4[1] = 0xFF;
+    if (lfnentry->fileName_Part3[0] == 0) {
+      lfnentry->fileName_Part3[3] = 0xFF;
+      lfnentry->fileName_Part3[2] = 0xFF;
+    }
     entry++;
     entry->creation_time_frac = RASPBERRY_PI_TIME_FRAC;
     entry->creation_time = RASPBERRY_PI_TIME;
@@ -412,29 +430,29 @@ int32_t tud_msc_read10_cb(uint8_t lun, uint32_t lba, uint32_t offset, void* buf,
                     uint32_t cluster_offset = 2;
                     uint32_t size = 2 * 1024;
                     assert(cluster_offset == (EEPROM_CLUSTER_START + 2));
-                    init_dir_entry(++entries, "ROM     EEP", "r\0o\0m\0.\0e\0e\0p\0\0\0\0\0\0\0\0\0\0", cluster_offset, gEepromSize, 0);
-                    entries++;
+                    if (gEepromSize != 0) {
+                      init_dir_entry(++entries, "ROM     EEP", "R\0O\0M\0.\0e\0e\0p\0\0\0\0\0\0\0\0\0\0", cluster_offset, gEepromSize, 0);
+                      entries++;
+                    }
 
                     cluster_offset += (size / CLUSTER_SIZE) + 1;
                     assert(cluster_offset == (FLASHRAM_CLUSTER_START + 2));
                     size = 128 * 1024;
                     if ((gSRAMPresent != false) || (gFramPresent != false)) {
-                      init_dir_entry(++entries, "ROM     FLA", "r\0o\0m\0.\0f\0l\0a\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0", cluster_offset, size, 0); // DaisyDrive64 doesn't differentiate between SRAM and FRAM for filenames.
-                    } else {
-                      init_dir_entry(++entries, "ROM     FLA", "r\0o\0m\0.\0f\0l\0a\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0", cluster_offset, 0, 0); // DaisyDrive64 doesn't differentiate between SRAM and FRAM for filenames.
+                      init_dir_entry(++entries, "ROM     FLA", "R\0O\0M\0.\0f\0l\0a\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0", cluster_offset, size, 0); // DaisyDrive64 doesn't differentiate between SRAM and FRAM for filenames.
+                      entries++;
                     }
-                    entries++;
 
                     cluster_offset += size / CLUSTER_SIZE;
                     size = (64 * 1024 * 1024);
                     assert(cluster_offset == (N64ROM_CLUSTER_START + 2));
-                    init_dir_entry(++entries, "ROM     N64", "r\0o\0m\0.\0n\0\\6\0\\4\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0", cluster_offset, gRomSize, ATTR_READONLY);
+                    init_dir_entry(++entries, "ROM     N64", "R\0O\0M\0.\0n\0""6\0""4\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0", cluster_offset, gRomSize, ATTR_READONLY);
                     entries++;
 
                     cluster_offset += size / CLUSTER_SIZE;
                     size = (64 * 1024 * 1024);
                     assert(cluster_offset == (Z64ROM_CLUSTER_START + 2));
-                    init_dir_entry(++entries, "ROMF    Z64", "r\0o\0m\0.\0z\0\\6\0\\4\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0", cluster_offset, gRomSize, ATTR_READONLY); // Same as N64 just byteflipped.
+                    init_dir_entry(++entries, "ROMF    Z64", "R\0O\0M\0F\0.\0z\0""6\0""4\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0", cluster_offset, gRomSize, ATTR_READONLY); // Same as N64 just byteflipped.
                     entries++;
 
                     cluster_offset += size / CLUSTER_SIZE;
@@ -446,10 +464,8 @@ int32_t tud_msc_read10_cb(uint8_t lun, uint32_t lba, uint32_t offset, void* buf,
                       } else {
                         init_dir_entry(++entries, "ROMF    RAM", "R\0O\0M\0F\0.\0r\0a\0m\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0", cluster_offset, size, 0); // Same as N64 just byteflipped, ram for Ares emulator support.
                       }
-                    } else {
-                      init_dir_entry(++entries, "ROMF    FLA", "R\0O\0M\0F\0.\0f\0l\0a\0s\0h\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0", cluster_offset, 0, 0); // Same as N64 just byteflipped, ram for Ares emulator support.
+                      entries++;
                     }
-                    entries++;
 
                     cluster_offset += size / CLUSTER_SIZE;
                     size = 2 * 1024;
@@ -462,7 +478,7 @@ int32_t tud_msc_read10_cb(uint8_t lun, uint32_t lba, uint32_t offset, void* buf,
                     cluster_offset += (size / CLUSTER_SIZE) + 1;
                     size = 2 * 1024;
                     assert(cluster_offset == (CARTTEST_CLUSTER_START + 2));
-                    init_dir_entry(++entries, "CARTTESTTXT", "c\0a\0r\0t\0t\0e\0s\0t\0.\0t\0x\0t\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0", cluster_offset, size, ATTR_READONLY);
+                    init_dir_entry(++entries, "CARTTESTTXT", "C\0a\0r\0t\0T\0e\0s\0t\0.\0t\0x\0t\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0", cluster_offset, size, ATTR_READONLY);
                     entries++;
                 } else {
                   memset(buf, 0, buf_size);
