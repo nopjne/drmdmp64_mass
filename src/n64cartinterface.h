@@ -19,8 +19,16 @@
 #define N64_CIC_DCLK   (20)
 #define N64_CIC_DIO    (21)
 #define N64_COLD_RESET (22)
-#define N64_ALEL       (27)
-#define N64_ALEH       (28)
+#define N64_ALEL_INIT  (27)
+#define N64_ALEH_INIT  (28)
+#define N64_ALEL_PI    (26)
+#define N64_ALEH_PI    (27)
+
+
+#define N64_ALEL       ((gGpioRemap == false) ? N64_ALEL_INIT : N64_ALEL_PI)
+#define N64_ALEH       ((gGpioRemap == false) ? N64_ALEH_INIT : N64_ALEH_PI)
+
+extern bool gGpioRemap;
 
 #define READ_LOW_DELAY_NS (133 / 4) // 133 = 1us 1us / 5 = ~300ns
 

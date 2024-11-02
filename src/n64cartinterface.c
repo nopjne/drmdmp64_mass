@@ -46,6 +46,7 @@ uint16_t gGameTitle[0x16];
 uint16_t gGameCode[6];
 uint32_t gChecksum;
 const char* gCICName;
+bool gGpioRemap = false;
 
 void set_ad_input() {
     for(uint32_t i = 0; i < 16; i++) {
@@ -174,7 +175,21 @@ void cartio_init()
     // Read start address, assert that the retured value is something valid.
     set_address(CART_ADDRESS_START);
     uint32_t read = (((uint32_t)read16()) << 16) | (read16());
+    if (read != 0x80371240) {
+        gGpioRemap = true;
+        // Force setup.
+        gpio_init(N64_ALEL);
+        gpio_set_dir(N64_ALEL, true);
+        gpio_put(N64_ALEL, false);
+        gpio_set_pulls(N64_ALEL, true, false);
+        sleep_ms(300);
+        set_address(CART_ADDRESS_START);
+        read = (((uint32_t)read16()) << 16) | (read16());
+    }
+
     assert(read == 0x80371240);
+
+    // Hang is coudn't header.
     while(read != 0x80371240) {
         gpio_put(PICO_DEFAULT_LED_PIN, true);
         sleep_ms(100);
