@@ -17,6 +17,7 @@ latex
 /examples/*/*/build*
 test_old/
 tests_obsolete/
+/build/version.h
 _build
 /examples/*/*/ses
 /examples/*/*/ozone

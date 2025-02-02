@@ -14,6 +14,8 @@
 #include "tusb.h"
 #include "n64cartinterface.h"
 
+#include "version.h"
+
 #if CFG_TUD_MSC
 
 // whether host does safe-eject
@@ -34,7 +36,8 @@ uint8_t CartTestText[2 * 1024] =
 "    Romsize   - 16MB\n"
 "    RomName   - Placeholder\n"
 "    RomID     - 00000000\n"
-"    RomRegion - Europe\n";
+"    RomRegion - Europe\n"
+"    DrmDmp64m - 00000000\n";
 
 #define vd_sector_count() SECTOR_COUNT
 enum
@@ -315,6 +318,7 @@ uint32_t msc_get_serial_number32() {
 
 #define min(x, y) (x < y ? x : y)
 static volatile uint32_t lock = 0;
+const char* DrmDmp64MassVersion = PROJ_VERSION;
 int32_t tud_msc_read10_cb(uint8_t lun, uint32_t lba, uint32_t offset, void* buf, uint32_t buf_size)
 {
     (void)lun;
@@ -525,7 +529,8 @@ int32_t tud_msc_read10_cb(uint8_t lun, uint32_t lba, uint32_t offset, void* buf,
                         "    RomID      - %04X %c%c\n"
                         "    CartType   - %c\n"
                         "    RomRegion  - %c\n"
-                        "    RomVersion - %02X\n",
+                        "    RomVersion - %02X\n"
+                        "    DrmDmp64m  - %s\n",
                         EepString,
                         (gSRAMPresent != 0) ? OK : NotPresent,
                         (gFramPresent != 0) ? OK : NotPresent, gFlashType,
@@ -536,7 +541,8 @@ int32_t tud_msc_read10_cb(uint8_t lun, uint32_t lba, uint32_t offset, void* buf,
                         gGameCode[1], ((gGameCode[1] >> 8) & 0xFF), (gGameCode[1] & 0xFF),
                         gGameCode[0] & 0xFF,
                         ((gGameCode[2] >> 8) & 0xFF),
-                        (gGameCode[2] & 0xFF)
+                        (gGameCode[2] & 0xFF),
+                        DrmDmp64MassVersion
                         );
                       } else {
                         memset(buf, 0, SECTOR_SIZE);
