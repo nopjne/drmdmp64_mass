@@ -23,6 +23,32 @@ endif()
 
 add_executable(${PROJECT})
 
+#########################
+## Version information ##
+#########################
+# Credit: https://github.com/mwpenny/portal64-still-alive
+
+set(GEN_VERSION_HEADER "${PROJECT_SOURCE_DIR}/GenVersionHeader.cmake")
+set(VERSION_H          "${PROJECT_BINARY_DIR}/version.h")
+
+add_custom_target(version_header
+    DEPENDS
+        ${GEN_VERSION_HEADER}
+    BYPRODUCTS
+        ${VERSION_H}
+    COMMAND
+        ${CMAKE_COMMAND}
+        -D Git_EXECUTABLE=${Git_EXECUTABLE}
+        -D OUTPUT_FILE=${VERSION_H}
+        -P ${GEN_VERSION_HEADER}
+    WORKING_DIRECTORY
+        ${PROJECT_SOURCE_DIR}
+    VERBATIM
+)
+
+# Make sure version header is always up to date
+add_dependencies(${PROJECT} version_header)
+
 add_custom_command(OUTPUT ${CMAKE_CURRENT_LIST_DIR}/src/generated/joybus.pio.h
         DEPENDS ${CMAKE_CURRENT_LIST_DIR}/src/joybus.pio
         COMMAND pioasm/pioasm ${CMAKE_CURRENT_LIST_DIR}/src/joybus.pio ${CMAKE_CURRENT_LIST_DIR}/src/generated/joybus.pio.h
