@@ -341,7 +341,7 @@ void cartio_init()
     break;
 
     case CRC_NUS_6106:
-        gCICName = "6105";
+        gCICName = "6106";
     break;
 
     case CRC_NUS_8303:
